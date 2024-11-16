@@ -22,7 +22,7 @@ def run_scraper(username, start_date, end_date, tweets_per_month=1000):
     """
     monthly_ranges = generate_monthly_ranges(start_date, end_date)
     for start, end in monthly_ranges:
-        query = f'(from:{username}) until:{end.strftime("%Y-%m-%d")} since:{start.strftime("%Y-%m-%d")}'
+        query = f'(from:{username}) until:{end.strftime("%Y-%m-%d")} since:{start.strftime("%Y-%m-%d")} -filter:replies'
         command = f'python3 scraper -t {tweets_per_month} --user=@chengxihan1 --password=Shuaijerryshuai2448878048 --query="{query}"'
         print(f"Running: {command}")
         os.system(command)  # Executes the command
