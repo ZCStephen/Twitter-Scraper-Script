@@ -1,7 +1,7 @@
 # Twitter-Scraper-Script
 A Twitter Scraper Script 
 
-Test scrpit:
+Example Input for scraper:
 
 python scraper --username=@realDonaldTrump
 
@@ -14,3 +14,10 @@ python scraper -t 3200 --user=@chengxihan1 --password=Shuaijerryshuai2448878048 
 python scraper --user=@chengxihan1 --password=Shuaijerryshuai2448878048 --query="(from:BurgerKing) until:2020-01-31 since:2020-01-01 -filter:replies" -t 300
 
 python scraper --user=@chengxihan1 --password=Shuaijerryshuai2448878048 --query="(from:Lakers) until:2020-01-31 since:2020-01-01 -filter:replies" -t 300
+
+Example Input for scraper runner:
+
+Enter the Twitter username (without @): BurgerKing
+Enter the start date (YYYY-MM-DD): 2020-01-01
+Enter the end date (YYYY-MM-DD): 2020-02-31
+
