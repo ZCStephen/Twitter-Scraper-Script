@@ -569,8 +569,31 @@ It may be due to the following:
 
         df = pd.DataFrame(data)
 
+        # Extract scrape details for naming
+        target_username = self.scraper_details.get("username", None)
+        query = self.scraper_details.get("query", None)
+
+        # Debugging the details
+        print("Scraper Details:", self.scraper_details)
+
+        # Determine username from query if it's available
+        if not target_username and query and "from:" in query:
+            target_username = query.split("from:")[1].split()[0].strip("()@")
+
+        # Fallback to "UnknownUser" if username is still not found
+        target_username = target_username or "UnknownUser"
+
+        # Get scrape period from the query
+        query_parts = query.split() if query else []
+        since_date = next((part.split(":")[1] for part in query_parts if part.startswith("since:")), "UnknownStart")
+        until_date = next((part.split(":")[1] for part in query_parts if part.startswith("until:")), "UnknownEnd")
+
+        # Format file name with scrape details and real-time suffix
         current_time = now.strftime("%Y-%m-%d_%H-%M-%S")
-        file_path = f"{folder_path}{current_time}_tweets_1-{len(self.data)}.csv"
+        file_name = f"{target_username}_{since_date}_{until_date}_{current_time}.csv"
+        file_path = os.path.join(folder_path, file_name)
+
+        # Save the file
         pd.set_option("display.max_colwidth", None)
         df.to_csv(file_path, index=False, encoding="utf-8")
 
