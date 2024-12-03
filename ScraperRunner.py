@@ -26,16 +26,16 @@ def generate_monthly_ranges(start_date, end_date):
         current_date = month_end + timedelta(days=1)
     return ranges
 
-def run_scraper_for_user(username, start_date, end_date, tweets_per_month=100):
+def run_scraper(username, start_date, end_date, tweets_per_month=1000):
     """
-    Run the scraper for a specific username and each month in the range.
+    Run the scraper for each month in the range.
     """
     monthly_ranges = generate_monthly_ranges(start_date, end_date)
     for start, end in monthly_ranges:
-        query = f'(@{username}) until:{end.strftime("%Y-%m-%d")} since:{start.strftime("%Y-%m-%d")}'
-        command = f'python scraper -t {tweets_per_month} --query="{query}"'
+        query = f'(from:{username}) until:{end.strftime("%Y-%m-%d")} since:{start.strftime("%Y-%m-%d")} -filter:replies'
+        command = f'python3 scraper -t {tweets_per_month} --user=@chengxihan1 --password=Shuaijerryshuai2448878048 --query="{query}"'
         print(f"Running: {command}")
-        os.system(command)
+        os.system(command)  # Executes the command
 
 def run_scraper_from_excel(file_path, start_date, end_date):
     """
@@ -49,7 +49,7 @@ def run_scraper_from_excel(file_path, start_date, end_date):
         usernames = df['username'].dropna().unique()  # Get unique usernames
         for username in usernames:
             print(f"Starting scraper for user: {username}")
-            run_scraper_for_user(username.strip(), start_date, end_date)
+            run_scraper(username.strip(), start_date, end_date)
     except Exception as e:
         print(f"Error reading the Excel file: {e}")
 
