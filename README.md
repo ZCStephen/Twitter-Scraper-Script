@@ -17,7 +17,7 @@ python scraper --user=@chengxihan1 --password=Shuaijerryshuai2448878048 --query=
 
 Example Input for scraper runner:
 
-Enter the Twitter username (without @): BurgerKing
-Enter the start date (YYYY-MM-DD): 2020-01-01
-Enter the end date (YYYY-MM-DD): 2020-02-31
-
+Enter the path to the Excel file containing accounts (username and password): 
+Enter the path to the Excel file containing target usernames: 
+Enter the start date (YYYY-MM-DD): 2021-01-01
+Enter the end date (YYYY-MM-DD): 2021-03-31
