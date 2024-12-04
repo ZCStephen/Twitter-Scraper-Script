@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 from itertools import cycle
+import time
 
 def validate_date(date_str):
     """
@@ -27,14 +28,26 @@ def generate_monthly_ranges(start_date, end_date):
         current_date = month_end + timedelta(days=1)
     return ranges
 
-def run_scraper(username, password, target_user, start, end, tweets_per_month=1000):
+def run_scraper_with_retry(username, password, target_user, start, end, tweets_per_month=1000, max_retries=3):
     """
-    Run the scraper for a single query using the specified account.
+    Run the scraper for a single query using the specified account with retry logic.
     """
     query = f'(from:{target_user}) until:{end.strftime("%Y-%m-%d")} since:{start.strftime("%Y-%m-%d")} -filter:replies'
     command = f'python3 scraper -t {tweets_per_month} --user={username} --password={password} --query="{query}"'
-    print(f"Running: {command}")
-    os.system(command)  # Executes the command
+
+    for attempt in range(max_retries):
+        try:
+            print(f"Running (Attempt {attempt + 1}/{max_retries}): {command}")
+            result = os.system(command)  # Executes the command
+            if result == 0:  # Success
+                print(f"Scraping succeeded for {target_user} (Period: {start} to {end})")
+                return
+            else:
+                print(f"Scraping failed (Attempt {attempt + 1}/{max_retries}) for {target_user}. Retrying...")
+        except Exception as e:
+            print(f"Error during scraping: {e}")
+        time.sleep(5)  # Wait before retrying
+    print(f"Failed to scrape {target_user} (Period: {start} to {end}) after {max_retries} attempts.")
 
 def load_accounts(file_path):
     """
@@ -79,7 +92,7 @@ def run_scraper_from_excel(account_file, user_file, start_date, end_date):
                 # Get the next account in rotation
                 account_username, account_password = next(accounts)
                 print(f"Scraping for {target_user} (Period: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}) using account: {account_username}")
-                run_scraper(account_username, account_password, target_user.strip(), start, end)
+                run_scraper_with_retry(account_username, account_password, target_user.strip(), start, end)
     except Exception as e:
         print(f"Error reading the user file: {e}")
 
