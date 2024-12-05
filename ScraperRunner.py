@@ -2,6 +2,8 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 from itertools import cycle
+import subprocess
+import time
 
 def validate_date(date_str):
     """
@@ -27,14 +29,39 @@ def generate_monthly_ranges(start_date, end_date):
         current_date = month_end + timedelta(days=1)
     return ranges
 
-def run_scraper(username, password, target_user, start, end, tweets_per_month=1000):
+def run_scraper(username, password, target_user, start, end, tweets_per_month=1000, max_retries=3):
     """
     Run the scraper for a single query using the specified account.
+    Retries up to max_retries times if login fails.
     """
     query = f'(from:{target_user}) until:{end.strftime("%Y-%m-%d")} since:{start.strftime("%Y-%m-%d")} -filter:replies'
-    command = f'python3 scraper -t {tweets_per_month} --user={username} --password={password} --query="{query}"'
-    print(f"Running: {command}")
-    os.system(command)  # Executes the command
+    command = f'python3 scraper -t {tweets_per_month} --user="{username}" --password="{password}" --query="{query}"'
+    
+    attempts = 0
+    while attempts < max_retries:
+        print(f"\nAttempt {attempts + 1} for user {target_user} using account {username}")
+        print(f"Running: {command}")
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        
+        # Combine stdout and stderr for checking
+        output = (result.stdout + result.stderr).lower()
+        
+        # Check if "Login Successful" is in the output
+        if "login successful" in output:
+            print("Login successful. Scraper ran successfully.")
+            break
+        else:
+            print(f"Login failed on attempt {attempts + 1}.")
+            if attempts < max_retries - 1:
+                print("Retrying...")
+                attempts += 1
+                time.sleep(2)  # Optional: wait before retrying
+            else:
+                print("Max retries reached. Scraper failed to log in.")
+                print(f"Error output:\n{result.stderr}")
+                break  # Exit the loop after max retries
+    else:
+        print("Max retries reached. Scraper failed to log in.")
 
 def load_accounts(file_path):
     """
@@ -62,7 +89,7 @@ def run_scraper_from_excel(account_file, user_file, start_date, end_date):
     if not accounts:
         print("No accounts available for scraping. Exiting.")
         return
-    
+
     try:
         user_df = pd.read_excel(user_file)
         if 'username' not in user_df.columns:
@@ -78,8 +105,8 @@ def run_scraper_from_excel(account_file, user_file, start_date, end_date):
             for start, end in monthly_ranges:
                 # Get the next account in rotation
                 account_username, account_password = next(accounts)
-                print(f"Scraping for {target_user} (Period: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}) using account: {account_username}")
-                run_scraper(account_username, account_password, target_user.strip(), start, end)
+                print(f"\nScraping for {target_user} (Period: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}) using account: {account_username}")
+                run_scraper(account_username.strip(), account_password.strip(), target_user.strip(), start, end)
     except Exception as e:
         print(f"Error reading the user file: {e}")
 
@@ -104,4 +131,3 @@ if __name__ == "__main__":
 
     # Run the scraper for each target user using rotating accounts
     run_scraper_from_excel(account_file_path, user_file_path, start_date, end_date)
-
