@@ -5,3 +5,7 @@ python scraper --user=@chengxihan1 --password=Shuaijerryshuai2448878048 --query=
 python scraper -t 3200 --user=@chengxihan1 --password=Shuaijerryshuai2448878048 -u realDonaldTrump
 
 Jan 2020 (from:McDonalds) until:2020-01-31 since:2020-01-01
+
+Query example: CocaCola(from:Pepsi) until:2020-12-31 since:2020-01-01 -filter:replies
+
+python scraper --user=@username --password=pwd --query="CocaCola(from:Pepsi) until:2020-12-31 since:2020-01-01 -filter:replies" -t 1000
