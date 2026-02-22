@@ -1,172 +1,189 @@
-import os
-import pandas as pd
-from datetime import datetime, timedelta
-from itertools import cycle
 import tweepy
-import csv
+import datetime
+import pandas as pd
 import time
+import re
 
-def validate_date(date_str):
-    """
-    Validates the date format and checks if the date is valid.
-    Returns a datetime object if valid, or None if invalid.
-    """
+# ────────────────────────────────────────────────
+#  CONFIG
+# ────────────────────────────────────────────────
+
+BEARER_TOKEN = 'AAAAAAAAAAAAAAAAAAAAAMyM5gEAAAAAqPZHu0AoUvzKNEpJ7w%2BPkek0R0A%3DZj8hl1ui3BTvSikPsjQZhgGfib9LMLw61OvXL4dNRk4CTBaPd3'          # ← replace
+
+# Initialize client (Pro tier – read-only is fine)
+client = tweepy.Client(bearer_token=BEARER_TOKEN)
+
+# ────────────────────────────────────────────────
+#  HELPERS
+# ────────────────────────────────────────────────
+
+def get_user_info(username):
+    """Fetch basic user metadata once"""
     try:
-        return datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError:
-        print(f"Invalid date format or invalid day: {date_str}. Please use a valid date in YYYY-MM-DD format.")
+        user = client.get_user(
+            username=username,
+            user_fields=['id', 'name', 'username', 'verified', 'profile_image_url']
+        )
+        if user.data:
+            return {
+                'id': user.data.id,
+                'name': user.data.name,
+                'username': user.data.username,
+                'verified': user.data.verified,
+                'profile_image_url': user.data.profile_image_url
+            }
         return None
-
-def generate_monthly_ranges(start_date, end_date):
-    """
-    Generate a list of start and end dates for each month in the range.
-    """
-    current_date = start_date
-    ranges = []
-    while current_date <= end_date:
-        month_end = (current_date.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-        month_end = min(month_end, end_date)
-        ranges.append((current_date, month_end))
-        current_date = month_end + timedelta(days=1)
-    return ranges
-
-def run_api_scraper(bearer_token, target_user, start, end, tweets_per_month=1000, max_retries=3):
-    """
-    Run the API scraper for a single query using the specified bearer token.
-    Retries up to max_retries times if authentication fails.
-    Assumes elevated API access (e.g., Pro) for full-archive search.
-    Saves results to a CSV file named {target_user}_{start_date}_{end_date}.csv.
-    """
-    client = tweepy.Client(bearer_token=bearer_token)
-    output_file = f"{target_user}_{start.strftime('%Y-%m-%d')}_{end.strftime('%Y-%m-%d')}.csv"
-    
-    query = f"from:{target_user} -is:reply"
-    
-    attempts = 0
-    while attempts < max_retries:
-        print(f"\nAttempt {attempts + 1} for user {target_user} (Period: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}) using token ending in {bearer_token[-4:]}")
-        
-        try:
-            # Removed get_me() test as it causes TypeError with bearer auth
-            
-            # Fetch tweets using full-archive search (requires Pro/Academic access)
-            with open(output_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(['id', 'text', 'created_at', 'author_id', 'retweet_count', 'like_count'])
-                
-                paginator = tweepy.Paginator(
-                    client.search_all_tweets,
-                    query=query,
-                    start_time=start.isoformat() + 'Z',
-                    end_time=end.isoformat() + 'Z',
-                    tweet_fields=['id', 'text', 'created_at', 'author_id', 'public_metrics'],
-                    max_results=100
-                ).flatten(limit=tweets_per_month)
-                
-                for tweet in paginator:
-                    metrics = tweet.public_metrics
-                    writer.writerow([
-                        tweet.id,
-                        tweet.text,
-                        tweet.created_at,
-                        tweet.author_id,
-                        metrics['retweet_count'],
-                        metrics['like_count']
-                    ])
-            
-            print(f"Data saved to {output_file}")
-            break
-        
-        except tweepy.errors.Unauthorized as e:
-            print(f"Authentication failed on attempt {attempts + 1}: {e}")
-            attempts += 1
-            if attempts < max_retries:
-                print("Retrying with same token...")
-                time.sleep(2)
-            else:
-                print("Max retries reached. Skipping this period.")
-                break
-        
-        except tweepy.errors.TooManyRequests as e:
-            print(f"Rate limit hit: {e}. Waiting 15 minutes...")
-            time.sleep(900)  # 15 minutes
-            continue  # Retry the same attempt
-        
-        except Exception as e:
-            print(f"Error during scraping: {e}")
-            attempts += 1
-            if attempts < max_retries:
-                print("Retrying...")
-                time.sleep(2)
-            else:
-                print("Max retries reached. Skipping this period.")
-                break
-
-def load_tokens(file_path):
-    """
-    Load bearer tokens from an Excel file.
-    """
-    try:
-        df = pd.read_excel(file_path)
-        if 'bearer_token' not in df.columns:
-            print("The Excel file must have a column named 'bearer_token'.")
-            return None
-        tokens = df['bearer_token'].dropna().tolist()
-        if not tokens:
-            print("No valid bearer tokens found in the file.")
-            return None
-        return cycle(tokens)  # Create a circular iterator of tokens
     except Exception as e:
-        print(f"Error reading the Excel file: {e}")
+        print(f"Error fetching user info for @{username}: {e}")
         return None
 
-def run_scraper_from_excel(token_file, user_file, start_date, end_date):
+
+def extract_emojis(text):
+    emoji_pattern = re.compile(
+        "["
+        u"\U0001F600-\U0001F64F" u"\U0001F300-\U0001F5FF"
+        u"\U0001F680-\U0001F6FF" u"\U0001F1E0-\U0001F1FF"
+        u"\U00002702-\U000027B0" u"\U000024C2-\U0001F251"
+        "]+", flags=re.UNICODE)
+    emojis = emoji_pattern.findall(text)
+    return ', '.join(emojis) if emojis else ''
+
+
+def scrape_user_original_posts(username, start_date, end_date):
     """
-    Rotate bearer tokens for each query and run the API scraper for all users and all months.
+    Uses FULL-ARCHIVE search_all_tweets → requires Academic Research access!
+    Gets original posts (no retweets, no replies) from any date range.
     """
-    tokens = load_tokens(token_file)
-    if not tokens:
-        print("No bearer tokens available for scraping. Exiting.")
+    all_tweets = []
+    next_token = None
+
+    start_time = start_date.isoformat() + 'Z'
+    end_time   = end_date.isoformat()   + 'Z'
+
+    query = f"from:{username} -is:retweet -is:reply"
+
+    print(f"Full-archive query: {query}")
+    print(f"Time range: {start_time} → {end_time}  (Academic access required)")
+
+    page = 0
+    while True:
+        page += 1
+        try:
+            response = client.search_all_tweets(
+                query=query,
+                start_time=start_time,
+                end_time=end_time,
+                max_results=500,               # ↑ higher than recent search (up to 500 allowed)
+                next_token=next_token,
+                tweet_fields=[
+                    'id', 'text', 'created_at', 'author_id',
+                    'public_metrics', 'entities'
+                ]
+            )
+
+            if response.data:
+                all_tweets.extend(response.data)
+                print(f"Page {page} → Fetched {len(response.data)} tweets (total: {len(all_tweets)})")
+
+            next_token = response.meta.get('next_token')
+            if not next_token:
+                print("→ Reached end of results")
+                break
+
+            time.sleep(1.5)  # gentle delay – full-archive has 300 req / 15 min limit
+
+        except tweepy.TooManyRequests:
+            print("Rate limit (300 req/15min) → sleeping 15 minutes...")
+            time.sleep(900)
+        except tweepy.errors.Forbidden:
+            print("403 Forbidden → most likely: no Academic Research access on this app/project")
+            break
+        except tweepy.Unauthorized:
+            print("401 Unauthorized → invalid/revoked token")
+            break
+        except Exception as e:
+            print(f"Full-archive search error: {e}")
+            break
+
+    return all_tweets
+
+
+def process_user(username, start_date_str, end_date_str):
+    try:
+        start = pd.to_datetime(start_date_str).to_pydatetime()
+        end   = pd.to_datetime(end_date_str).to_pydatetime()
+    except Exception as e:
+        print(f"Date parse error for {username}: {e}")
         return
 
-    try:
-        user_df = pd.read_excel(user_file)
-        if 'username' not in user_df.columns:
-            print("The user file must have a column named 'username'.")
-            return
-        target_users = user_df['username'].dropna().unique()
+    user = get_user_info(username)
+    if not user:
+        print(f"Cannot find user @{username}")
+        return
 
-        # Generate monthly ranges
-        monthly_ranges = generate_monthly_ranges(start_date, end_date)
+    tweets = scrape_user_original_posts(username, start, end)
 
-        # Iterate over each target user, then rotate tokens for each month
-        for target_user in target_users:
-            for start, end in monthly_ranges:
-                # Get the next token in rotation
-                bearer_token = next(tokens).strip()
-                print(f"\nScraping for {target_user} (Period: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}) using token ending in {bearer_token[-4:]}")
-                run_api_scraper(bearer_token, target_user.strip(), start, end)
-    except Exception as e:
-        print(f"Error reading the user file: {e}")
+    if not tweets:
+        print(f"No original posts found for @{username} in selected period (or access issue).")
+        return
+
+    data = []
+    for t in tweets:
+        created_naive = t.created_at.replace(tzinfo=None)
+
+        entities = t.entities or {}
+        hashtags  = ', '.join(h.get('tag', '')   for h in entities.get('hashtags',  []))
+        mentions  = ', '.join(m.get('username','') for m in entities.get('mentions', []))
+
+        row = {
+            'Name':         user['name'],
+            'Handle':       f"@{user['username']}",
+            'Timestamp':    created_naive,
+            'Verified':     user['verified'],
+            'Content':      t.text,
+            'Comments':     t.public_metrics.get('reply_count', 0),
+            'Retweets':     t.public_metrics.get('retweet_count', 0),
+            'Likes':        t.public_metrics.get('like_count', 0),
+            'Analytics':    t.public_metrics.get('quote_count', 0),   # proxy for views/engagement
+            'Tags':         hashtags,
+            'Mentions':     mentions,
+            'Emojis':       extract_emojis(t.text),
+            'Profile Image':user['profile_image_url'],
+            'Tweet Link':   f"https://x.com/{user['username']}/status/{t.id}",
+            'Tweet ID':     t.id,
+            'Source_File':  f"{username}_input"
+        }
+        data.append(row)
+
+    df = pd.DataFrame(data)
+    clean = username.lstrip('@')
+    filename = f"{clean}_tweets.xlsx"
+    df.to_excel(filename, index=False)
+
+    print(f"\nSaved {len(df)} original posts → {filename}\n")
+
+
+# ────────────────────────────────────────────────
+#  MAIN
+# ────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # Inputs from the user
-    token_file_path = input("Enter the path to the Excel file containing bearer tokens (column: bearer_token): ").strip()
-    user_file_path = input("Enter the path to the Excel file containing target usernames: ").strip()
-    start_date_input = input("Enter the start date (YYYY-MM-DD): ").strip()
-    end_date_input = input("Enter the end date (YYYY-MM-DD): ").strip()
+    input_file = 'Sample_Input (1).xlsx'
 
-    # Validate dates
-    start_date = validate_date(start_date_input)
-    end_date = validate_date(end_date_input)
+    try:
+        df_input = pd.read_excel(input_file)
+    except FileNotFoundError:
+        print(f"File not found: {input_file}")
+        exit(1)
 
-    if not start_date or not end_date:
-        print("Invalid input dates. Please try again.")
-        exit()
+    required = {'username', 'TimeStart', 'TimeEnd'}
+    if not required.issubset(df_input.columns):
+        print(f"Missing columns. Need: {required}")
+        exit(1)
 
-    if start_date > end_date:
-        print("Start date cannot be after the end date. Please try again.")
-        exit()
-
-    # Run the scraper for each target user using rotating tokens
-    run_scraper_from_excel(token_file_path, user_file_path, start_date, end_date)
+    for _, row in df_input.iterrows():
+        u = str(row['username']).strip().lstrip('@')
+        start = row['TimeStart']
+        end   = row['TimeEnd']
+        print(f"\nProcessing @{u}  ({start} → {end})")
+        process_user(u, start, end)
