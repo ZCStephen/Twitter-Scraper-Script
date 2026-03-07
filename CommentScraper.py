@@ -113,6 +113,24 @@ def scrape_comments(post_id, conversation_start_time):
             print(f"400 Bad Request: {e}")
             print("→ Double-check query syntax, time format, or academic access level.")
             break
+        except tweepy.errors.TooManyRequests as e:
+            print("Rate limit hit → retrying the request after dynamic wait...")
+            # Dynamic wait based on API headers
+            if hasattr(e, 'response') and e.response:
+                reset_time = int(e.response.headers.get('x-rate-limit-reset', 0))
+                current_time = time.time()
+                if reset_time > current_time:
+                    wait_seconds = reset_time - current_time + 10  # Buffer 10s
+                    wait_minutes = wait_seconds / 60
+                    print(f"Waiting {wait_minutes:.1f} minutes until reset...")
+                    time.sleep(max(wait_seconds, 0))
+                else:
+                    print("Invalid reset time → default wait 2.2 seconds")
+                    time.sleep(2.2)
+            else:
+                print("No response info → default wait 2.2 seconds")
+                time.sleep(2.2)
+            # After wait, retry the same request (continue loop without break)
         except tweepy.errors.Unauthorized:
             print("401 Unauthorized → invalid/expired token or missing academic access")
             break
