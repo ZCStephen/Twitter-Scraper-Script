@@ -4,9 +4,10 @@ import pandas as pd
 import time
 import re
 import sys
+import os  # Added for env var suggestion
 
-
-BEARER_TOKEN = 'AAAAAAAAAAAAAAAAAAAAAMyM5gEAAAAAqPZHu0AoUvzKNEpJ7w%2BPkek0R0A%3DZj8hl1ui3BTvSikPsjQZhgGfib9LMLw61OvXL4dNRk4CTBaPd3'
+# Use env var for security (fallback to hardcoded if not set)
+BEARER_TOKEN = os.getenv('X_BEARER_TOKEN', 'AAAAAAAAAAAAAAAAAAAAAMyM5gEAAAAACeFeifCdo7qjqiAUjAoigrPxetU%3D2Z8SECqO67ujAuJAOnthqylC798dk9zNI4pEXbAgvGeW4iSViG')
 
 client = tweepy.Client(bearer_token=BEARER_TOKEN)
 
@@ -16,7 +17,6 @@ def extract_post_id(post_link):
         return match.group(1)
     print(f"Invalid post link: {post_link}")
     return None
-
 
 def get_original_post(post_id):
     try:
@@ -42,7 +42,6 @@ def get_original_post(post_id):
         print(f"Error fetching original post {post_id}: {e}")
         return None
 
-
 def extract_emojis(text):
     emoji_pattern = re.compile(
         r'['
@@ -57,20 +56,21 @@ def extract_emojis(text):
     )
     return ', '.join(emoji_pattern.findall(text)) if text else ''
 
-
 def scrape_comments(post_id, conversation_start_time):
     """
-    Fetch all replies in the conversation using search_all_tweets
+    Fetch all replies in the conversation using search_all_tweets.
+    Accumulates users across all pages.
     """
     all_comments = []
+    user_map = {}  # Accumulate all users here
     next_token = None
 
-    # Format times strictly as RFC3339 with 'Z' (no milliseconds)
+    # Format times as RFC3339 with 'Z'
     start_time_str = conversation_start_time.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    # Fix: subtract 30–60 seconds buffer to satisfy "minimum 10 seconds prior" rule
+    # Buffer end_time (45s safe)
     now_utc = datetime.datetime.now(datetime.timezone.utc)
-    end_time_safe = now_utc - datetime.timedelta(seconds=45)  # 45s buffer is safe
+    end_time_safe = now_utc - datetime.timedelta(seconds=45)
     end_time_str = end_time_safe.strftime('%Y-%m-%dT%H:%M:%SZ')
 
     query = f"conversation_id:{post_id} is:reply -is:retweet"
@@ -87,7 +87,7 @@ def scrape_comments(post_id, conversation_start_time):
                 start_time=start_time_str,
                 end_time=end_time_str,
                 max_results=500,
-                next_token=next_token,           # correct param name
+                next_token=next_token,
                 expansions=['author_id'],
                 tweet_fields=['id', 'text', 'created_at', 'public_metrics', 'entities'],
                 user_fields=['name', 'username', 'verified', 'profile_image_url']
@@ -97,20 +97,22 @@ def scrape_comments(post_id, conversation_start_time):
                 print(f"  Page {page} → Fetched {len(response.data)} replies (total so far: {len(all_comments) + len(response.data)})")
                 all_comments.extend(response.data)
 
+            # Accumulate users from THIS response
+            if hasattr(response, 'includes') and 'users' in response.includes:
+                for user in response.includes['users']:
+                    user_map[user.id] = user  # Overwrite if duplicate (fine)
+
             next_token = response.meta.get('next_token')
             if not next_token:
                 print("→ No more pages")
                 break
 
-            time.sleep(2.2)  # conservative delay
+            time.sleep(2.2)  # Conservative delay
 
         except tweepy.errors.BadRequest as e:
             print(f"400 Bad Request: {e}")
             print("→ Double-check query syntax, time format, or academic access level.")
             break
-        except tweepy.errors.TooManyRequests:
-            print("Rate limit → waiting 15 minutes...")
-            time.sleep(900)
         except tweepy.errors.Unauthorized:
             print("401 Unauthorized → invalid/expired token or missing academic access")
             break
@@ -121,15 +123,7 @@ def scrape_comments(post_id, conversation_start_time):
             print(f"Other API error: {e}")
             break
 
-    # Safely collect users (avoid UnboundLocalError)
-    user_map = {}
-    if 'response' in locals() and hasattr(response, 'includes') and 'users' in response.includes:
-        for user in response.includes['users']:
-            user_map[user.id] = user
-    # If no response ever succeeded, user_map stays empty → script will skip rows without user info
-
     return all_comments, user_map
-
 
 def process_post(post_link):
     post_id = extract_post_id(post_link)
@@ -146,10 +140,10 @@ def process_post(post_link):
     for comment in comments:
         user = user_map.get(comment.author_id)
         if not user:
-            continue  # skip if user info missing (rare)
+            continue  # Skip if user info missing
 
         entities = comment.entities or {}
-        tags     = ', '.join(t.get('tag', '') for t in entities.get('hashtags', []))
+        tags = ', '.join(t.get('tag', '') for t in entities.get('hashtags', []))
         mentions = ', '.join(m.get('username', '') for m in entities.get('mentions', []))
 
         data.append({
@@ -180,6 +174,8 @@ def process_post(post_link):
         return
 
     df = pd.DataFrame(data)
+    # Optional: Sort by timestamp ascending
+    df = df.sort_values('Comment_Timestamp')
     output_file = f"comments_{post_id}.xlsx"
     df.to_excel(output_file, index=False)
     print(f"Saved {len(df)} comments → {output_file}")
